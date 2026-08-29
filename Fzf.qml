@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "SearchCommand.js" as SearchCommand
 import "UserDirs.js" as UserDirs
 
 Item {
@@ -19,6 +20,8 @@ Item {
   property int selectedIndex: 0
   property int searchGen: 0
   property bool searching: false
+  property string searchError: ""
+  property string dirsError: ""
 
   // Shares the [menu] surface tokens — themes that style the menu also
   // style this overlay.
@@ -38,12 +41,20 @@ Item {
   property int cardHeight: Math.min(Style.space(500), panel.height - Style.gapsOut * 2)
   property int maxResults: 200
 
-  function open(payloadJson) {
-    root.opened = true
-    root.activeIndex = -1
+  function resetSearch(clearActive) {
+    debounce.stop()
+    root.searchGen++
+    if (searchProc.running) searchProc.running = false
+    if (clearActive) root.activeIndex = -1
     root.selectedIndex = 0
     root.searching = false
+    root.searchError = ""
     resultModel.clear()
+  }
+
+  function open(payloadJson) {
+    root.resetSearch(true)
+    root.opened = true
     for (var i = 0; i < fieldsRepeater.count; i++) {
       var field = fieldsRepeater.itemAt(i)
       if (field) field.clearText()
@@ -56,10 +67,11 @@ Item {
 
   function close() {
     root.opened = false
+    root.resetSearch(true)
   }
 
   function dismiss() {
-    root.opened = false
+    root.close()
     if (root.shell && typeof root.shell.hide === "function")
       root.shell.hide((root.manifest && root.manifest.id) || "sgruendel.fzf")
   }
@@ -70,22 +82,37 @@ Item {
   }
 
   function loadUserDirs(raw) {
-    root.dirs = UserDirs.parseUserDirs(raw, Quickshell.env("HOME"))
+    var parsed = UserDirs.parseUserDirs(raw, Quickshell.env("HOME"))
+    root.resetSearch(true)
+    root.dirs = parsed
+    root.dirsError = parsed.length === 0 ? "No searchable XDG user directories found" : ""
+    if (root.opened) Qt.callLater(function() {
+      var first = fieldsRepeater.itemAt(0)
+      if (first) first.focusInput()
+    })
+  }
+
+  function failUserDirs() {
+    root.resetSearch(true)
+    root.dirs = []
+    root.dirsError = "Could not read ~/.config/user-dirs.dirs"
   }
 
   function onQueryChanged(index, text) {
     if (text === "") {
-      if (root.activeIndex === index) {
-        root.activeIndex = -1
-        root.selectedIndex = 0
-        root.searching = false
-        root.searchGen++
-        resultModel.clear()
-      }
+      if (root.activeIndex === index) root.resetSearch(true)
       return
     }
+
+    // Invalidate and remove the previous result set immediately. Waiting for
+    // the debounce would leave stale rows actionable under the new query.
+    root.searchGen++
+    if (searchProc.running) searchProc.running = false
     root.activeIndex = index
     root.selectedIndex = 0
+    root.searching = true
+    root.searchError = ""
+    resultModel.clear()
     debounce.restart()
   }
 
@@ -98,10 +125,7 @@ Item {
       if (field && field.text !== "") field.clearText()
     }
     if (root.activeIndex !== index) {
-      root.activeIndex = -1
-      root.searching = false
-      root.searchGen++
-      resultModel.clear()
+      root.resetSearch(true)
     }
   }
 
@@ -110,25 +134,20 @@ Item {
     var field = fieldsRepeater.itemAt(root.activeIndex)
     var query = field ? field.text : ""
     if (query === "") return
-    root.searching = true
-    root.searchGen++
-    // Bump pendingGen only after exec(): stopping the previous process may
+    var dirPath = root.dirs[root.activeIndex].path
+    // Set pendingGen only after exec(): stopping the previous process may
     // flush its collector synchronously, and that stale output must still
     // fail the generation check.
-    searchProc.exec({
-      command: ["sh", "-c",
-        "fd --type f --hidden --exclude .git | fzf --filter=\"$1\" | head -" + root.maxResults,
-        "sh", query],
-      workingDirectory: root.dirs[root.activeIndex].path
-    })
+    searchProc.exec(SearchCommand.command(query, dirPath, root.maxResults))
     searchProc.pendingGen = root.searchGen
   }
 
   function applyResults(gen, raw) {
     if (gen !== root.searchGen) return
     root.searching = false
+    root.searchError = ""
     resultModel.clear()
-    var lines = String(raw || "").split("\n")
+    var lines = String(raw || "").split("\0")
     for (var i = 0; i < lines.length; i++) {
       if (lines[i] === "") continue
       resultModel.append({ path: lines[i] })
@@ -139,9 +158,26 @@ Item {
     })
   }
 
-  function select(delta) {
+  function finishSearch(gen, exitCode, stdoutText, stderrText) {
+    if (gen !== root.searchGen) return
+    if (exitCode === 0) {
+      root.applyResults(gen, stdoutText)
+      return
+    }
+
+    root.searching = false
+    resultModel.clear()
+    var detail = String(stderrText || "").trim()
+    root.searchError = detail !== "" ? detail : "Search failed (exit " + exitCode + ")"
+  }
+
+  function select(delta, wrap) {
     if (resultModel.count === 0) return
-    root.selectedIndex = (root.selectedIndex + delta + resultModel.count) % resultModel.count
+    if (wrap) {
+      root.selectedIndex = (root.selectedIndex + delta + resultModel.count) % resultModel.count
+    } else {
+      root.selectedIndex = Math.max(0, Math.min(resultModel.count - 1, root.selectedIndex + delta))
+    }
     resultList.positionViewAtIndex(root.selectedIndex, ListView.Contain)
   }
 
@@ -159,6 +195,8 @@ Item {
     path: Quickshell.env("HOME") + "/.config/user-dirs.dirs"
     watchChanges: true
     onLoaded: root.loadUserDirs(text())
+    onFileChanged: reload()
+    onLoadFailed: root.failUserDirs()
   }
 
   Timer {
@@ -171,11 +209,15 @@ Item {
     id: searchProc
     property int pendingGen: 0
     stdout: StdioCollector {
+      id: searchStdout
       waitForEnd: true
-      onStreamFinished: root.applyResults(searchProc.pendingGen, text)
+    }
+    stderr: StdioCollector {
+      id: searchStderr
+      waitForEnd: true
     }
     onExited: function(exitCode) {
-      if (searchProc.pendingGen === root.searchGen) root.searching = false
+      root.finishSearch(searchProc.pendingGen, exitCode, searchStdout.text, searchStderr.text)
     }
   }
 
@@ -283,16 +325,16 @@ Item {
                     else root.dismiss()
                     event.accepted = true
                   } else if (event.key === Qt.Key_Up) {
-                    root.select(-1)
+                    root.select(-1, true)
                     event.accepted = true
                   } else if (event.key === Qt.Key_Down) {
-                    root.select(1)
+                    root.select(1, true)
                     event.accepted = true
                   } else if (event.key === Qt.Key_PageUp) {
-                    root.select(-10)
+                    root.select(-10, false)
                     event.accepted = true
                   } else if (event.key === Qt.Key_PageDown) {
-                    root.select(10)
+                    root.select(10, false)
                     event.accepted = true
                   } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                     root.activateIndex(root.selectedIndex)
@@ -319,6 +361,20 @@ Item {
                 }
               }
             }
+          }
+
+          Text {
+            visible: root.dirs.length === 0
+            width: parent.width
+            height: visible ? root.fieldHeight : 0
+            text: root.dirsError || "No searchable XDG user directories found"
+            color: root.foreground
+            opacity: 0.7
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.title
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            wrapMode: Text.WordWrap
           }
         }
 
@@ -351,7 +407,7 @@ Item {
                 anchors.right: parent.right
                 anchors.rightMargin: Style.spacing.controlPaddingX
                 anchors.verticalCenter: parent.verticalCenter
-                text: parent.path
+                text: parent.path.replace(/\n/g, "↵").replace(/\r/g, "↵").replace(/\t/g, "⇥")
                 color: parent.hasCursor ? root.selectedText : root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
@@ -373,12 +429,15 @@ Item {
 
           Text {
             anchors.centerIn: parent
+            width: parent.width - Style.spacing.controlPaddingX * 2
             visible: root.activeIndex !== -1 && resultModel.count === 0
-            text: root.searching ? "Searching…" : "No matches"
+            text: root.searching ? "Searching…" : (root.searchError || "No matches")
             color: root.foreground
             opacity: 0.7
             font.family: root.fontFamily
             font.pixelSize: Style.font.title
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
           }
         }
       }

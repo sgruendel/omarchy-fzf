@@ -8,9 +8,24 @@
 // filtered out here.
 
 function displayName(key) {
-  var name = String(key || "").toLowerCase()
-  if (!name) return key
-  return name.charAt(0).toUpperCase() + name.slice(1)
+  var raw = String(key || "").toUpperCase()
+  var known = {
+    DESKTOP: "Desktop",
+    DOWNLOAD: "Downloads",
+    TEMPLATES: "Templates",
+    PUBLICSHARE: "Public Share",
+    DOCUMENTS: "Documents",
+    MUSIC: "Music",
+    PICTURES: "Pictures",
+    VIDEOS: "Videos"
+  }
+  if (known[raw]) return known[raw]
+
+  var words = raw.toLowerCase().split("_")
+  for (var i = 0; i < words.length; i++) {
+    if (words[i]) words[i] = words[i].charAt(0).toUpperCase() + words[i].slice(1)
+  }
+  return words.join(" ")
 }
 
 // Removes the surrounding double quotes and resolves the small set of
@@ -41,13 +56,16 @@ function isHome(path, home) {
 // at the home directory itself. Order follows the file.
 function parseUserDirs(raw, home) {
   var out = []
+  var seenPaths = []
   var lines = String(raw || "").split("\n")
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i].trim()
     var match = /^XDG_([A-Za-z0-9_]+)_DIR=(.*)$/.exec(line)
     if (!match) continue
     var path = resolvePath(match[2], home)
-    if (isHome(path, home)) continue
+    if (!path || path.charAt(0) !== "/" || isHome(path, home)) continue
+    if (seenPaths.indexOf(path) !== -1) continue
+    seenPaths.push(path)
     out.push({ name: displayName(match[1]), path: path })
   }
   return out

@@ -52,9 +52,17 @@ o.bind("SUPER + F", nil, "omarchy-shell shell toggle sgruendel.fzf")
 ## How it works
 
 Each keystroke is debounced (150 ms) and runs
-`fd --type f --hidden --exclude .git | fzf --filter=<query>` inside the
-directory, so results are ranked exactly like interactive fzf. Hidden files
-are included except `.git`; fd also respects your `.gitignore`.
+`fd --type f --hidden --exclude .git | fzf --scheme=path --filter=<query>`
+inside the directory, so results use fzf's path-oriented ranking. Hidden
+files are included except `.git`; fd also respects your `.gitignore`.
+
+## Development
+
+Run the parser and search-pipeline tests with:
+
+```bash
+node --test
+```
 
 ## License
 
