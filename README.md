@@ -37,14 +37,15 @@ omarchy-shell shell toggle sgruendel.fzf
 To bind it to a key, add a line like this to `~/.config/hypr/bindings.lua`:
 
 ```lua
-o.bind("SUPER + F", nil, "omarchy-shell shell toggle sgruendel.fzf")
+o.bind("XF86Search", nil, "omarchy-shell shell toggle sgruendel.fzf")
 ```
 
 ## Controls
 
 - Type in a field: fuzzy-search that directory
 - `Tab` / `Shift+Tab`: move between directory fields
-- `Up` / `Down` / `PageUp` / `PageDown`: move the result selection
+- `Up` / `Down` or `Ctrl+K` / `Ctrl+J`: move the result selection
+- `PageUp` / `PageDown` or `Ctrl+U` / `Ctrl+D`: move by ten results
 - `Enter`: open the selected file with `xdg-open`
 - `Escape`: clear the current search, or close the overlay when empty
 - Click a result to open it; click outside the card to close the overlay
