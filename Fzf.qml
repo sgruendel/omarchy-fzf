@@ -36,6 +36,7 @@ Item {
   property string fontFamily: Style.font.menuFamily
   property int contentMargin: Style.spacing.panelPadding
   property int fieldHeight: Math.max(Style.space(34), Style.font.title + Style.spacing.controlPaddingY * 2)
+  property int shortcutHeight: Math.max(Style.space(34), Style.font.caption + Style.spacing.controlPaddingY * 2)
   property int contentSpacing: Style.spacing.md
   property int cardWidth: Math.min(Style.space(560), panel.width - Style.gapsOut * 2)
   property int cardHeight: Math.min(Style.space(500), panel.height - Style.gapsOut * 2)
@@ -253,17 +254,18 @@ Item {
 
       MouseArea { anchors.fill: parent; onClicked: {} }
 
-      Column {
+      Item {
         anchors.fill: parent
         anchors.topMargin: card.contentTopInset
         anchors.rightMargin: card.contentRightInset
         anchors.bottomMargin: card.contentBottomInset
         anchors.leftMargin: card.contentLeftInset
-        spacing: root.contentSpacing
 
         Column {
           id: fieldsColumn
-          width: parent.width
+          anchors.top: parent.top
+          anchors.left: parent.left
+          anchors.right: parent.right
           spacing: Style.space(4)
 
           Repeater {
@@ -320,20 +322,21 @@ Item {
                 onActiveFocusChanged: if (activeFocus) root.onFieldFocused(fieldRow.index)
 
                 Keys.onPressed: function(event) {
+                  var control = (event.modifiers & Qt.ControlModifier) !== 0
                   if (event.key === Qt.Key_Escape) {
                     if (input.text !== "") input.text = ""
                     else root.dismiss()
                     event.accepted = true
-                  } else if (event.key === Qt.Key_Up) {
+                  } else if (event.key === Qt.Key_Up || (control && event.key === Qt.Key_K)) {
                     root.select(-1, true)
                     event.accepted = true
-                  } else if (event.key === Qt.Key_Down) {
+                  } else if (event.key === Qt.Key_Down || (control && event.key === Qt.Key_J)) {
                     root.select(1, true)
                     event.accepted = true
-                  } else if (event.key === Qt.Key_PageUp) {
+                  } else if (event.key === Qt.Key_PageUp || (control && event.key === Qt.Key_U)) {
                     root.select(-10, false)
                     event.accepted = true
-                  } else if (event.key === Qt.Key_PageDown) {
+                  } else if (event.key === Qt.Key_PageDown || (control && event.key === Qt.Key_D)) {
                     root.select(10, false)
                     event.accepted = true
                   } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
@@ -379,8 +382,12 @@ Item {
         }
 
         Item {
-          width: parent.width
-          height: parent.height - fieldsColumn.implicitHeight - root.contentSpacing
+          anchors.top: fieldsColumn.bottom
+          anchors.topMargin: root.contentSpacing
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.bottom: shortcuts.top
+          anchors.bottomMargin: root.contentSpacing
           visible: root.activeIndex !== -1
 
           ListView {
@@ -438,6 +445,79 @@ Item {
             font.pixelSize: Style.font.title
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
+          }
+        }
+
+        Item {
+          id: shortcuts
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.bottom: parent.bottom
+          height: root.shortcutHeight
+
+          Rectangle {
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            height: Math.max(1, Style.space(1))
+            color: root.border
+            opacity: 0.6
+          }
+
+          Row {
+            anchors.centerIn: parent
+            spacing: Style.space(12)
+
+            Repeater {
+              model: root.activeIndex === -1
+                ? [
+                    { keys: "Tab ⇧Tab", action: "Directory" },
+                    { keys: "Esc", action: "Close" }
+                  ]
+                : [
+                    { keys: "↑ ↓  C-j C-k", action: "Navigate" },
+                    { keys: "PgUp PgDn  C-u C-d", action: "Page" },
+                    { keys: "Enter", action: "Open" },
+                    { keys: "Esc", action: "Clear" }
+                  ]
+
+              delegate: Row {
+                id: shortcut
+
+                required property var modelData
+
+                height: keycap.height
+                spacing: Style.space(4)
+
+                Rectangle {
+                  id: keycap
+                  width: keyText.implicitWidth + Style.space(8)
+                  height: Math.max(Style.space(20), Style.font.caption + Style.space(6))
+                  radius: Math.min(root.cornerRadius, height / 2)
+                  color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
+
+                  Text {
+                    id: keyText
+                    anchors.centerIn: parent
+                    text: shortcut.modelData.keys
+                    color: root.foreground
+                    opacity: 0.85
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+                }
+
+                Text {
+                  height: keycap.height
+                  text: shortcut.modelData.action
+                  color: root.foreground
+                  opacity: 0.58
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  verticalAlignment: Text.AlignVCenter
+                }
+              }
+            }
           }
         }
       }
