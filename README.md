@@ -13,6 +13,16 @@ files from that directory appear below, ranked by fzf. The field stays
 visible so you can keep refining the search. Selecting an entry opens the
 file with `xdg-open`.
 
+## Screenshots
+
+Choose an XDG user directory to search:
+
+![Initial fzf overlay with one search field per XDG user directory](screenshots/initial.png)
+
+Review fuzzy-ranked file results without leaving the keyboard:
+
+![fzf overlay showing fuzzy-ranked files and keyboard shortcuts](preview.png)
+
 ## Requirements
 
 - Omarchy with the Quickshell desktop shell
@@ -24,6 +34,12 @@ file with `xdg-open`.
 
 ```bash
 omarchy plugin add https://github.com/sgruendel/omarchy-fzf.git --enable
+```
+
+## Remove
+
+```bash
+omarchy plugin remove sgruendel.fzf --yes
 ```
 
 ## Usage
