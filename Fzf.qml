@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "LastFieldState.js" as LastFieldState
 import "SearchCommand.js" as SearchCommand
 import "UserDirs.js" as UserDirs
 
@@ -22,6 +23,15 @@ Item {
   property bool searching: false
   property string searchError: ""
   property string dirsError: ""
+  property bool dirsLoaded: false
+  property bool lastFieldLoaded: false
+  property string lastFieldPath: ""
+  property string pendingLastFieldState: ""
+  property bool stateDirReady: false
+
+  readonly property string stateHome: Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state"
+  readonly property string stateDir: stateHome + "/sgruendel.fzf"
+  readonly property string statePath: stateDir + "/state.json"
 
   // Shares the [menu] surface tokens — themes that style the menu also
   // style this overlay.
@@ -60,10 +70,7 @@ Item {
       var field = fieldsRepeater.itemAt(i)
       if (field) field.clearText()
     }
-    Qt.callLater(function() {
-      var first = fieldsRepeater.itemAt(0)
-      if (first) first.focusInput()
-    })
+    root.focusPreferredField()
   }
 
   function close() {
@@ -86,17 +93,55 @@ Item {
     var parsed = UserDirs.parseUserDirs(raw, Quickshell.env("HOME"))
     root.resetSearch(true)
     root.dirs = parsed
+    root.dirsLoaded = true
     root.dirsError = parsed.length === 0 ? "No searchable XDG user directories found" : ""
-    if (root.opened) Qt.callLater(function() {
-      var first = fieldsRepeater.itemAt(0)
-      if (first) first.focusInput()
-    })
+    root.focusPreferredField()
   }
 
   function failUserDirs() {
     root.resetSearch(true)
     root.dirs = []
+    root.dirsLoaded = true
     root.dirsError = "Could not read ~/.config/user-dirs.dirs"
+  }
+
+  function loadLastField(raw) {
+    root.lastFieldPath = LastFieldState.parse(raw)
+    root.lastFieldLoaded = true
+    root.focusPreferredField()
+  }
+
+  function focusPreferredField() {
+    if (!root.opened || !root.dirsLoaded || !root.lastFieldLoaded) return
+    Qt.callLater(function() {
+      if (!root.opened) return
+      var index = LastFieldState.preferredIndex(root.dirs, root.lastFieldPath)
+      var field = index >= 0 ? fieldsRepeater.itemAt(index) : null
+      if (field) field.focusInput()
+    })
+  }
+
+  function rememberField(index) {
+    if (!root.lastFieldLoaded || index < 0 || index >= root.dirs.length) return
+    var path = root.dirs[index].path
+    if (path === root.lastFieldPath && root.pendingLastFieldState === "") return
+
+    var serialized = LastFieldState.serialize(path)
+    if (serialized === "") return
+    root.lastFieldPath = path
+    root.pendingLastFieldState = serialized
+
+    if (root.stateDirReady) {
+      root.flushLastFieldState()
+    } else if (!stateDirProc.running) {
+      stateDirProc.running = true
+    }
+  }
+
+  function flushLastFieldState() {
+    if (root.pendingLastFieldState === "") return
+    lastFieldFile.setText(root.pendingLastFieldState)
+    root.pendingLastFieldState = ""
   }
 
   function onQueryChanged(index, text) {
@@ -118,6 +163,7 @@ Item {
   }
 
   function onFieldFocused(index) {
+    root.rememberField(index)
     // Focusing another field abandons the previous search: clear the text of
     // every other field so a stale query cannot resurrect its results.
     for (var i = 0; i < fieldsRepeater.count; i++) {
@@ -198,6 +244,30 @@ Item {
     onLoaded: root.loadUserDirs(text())
     onFileChanged: reload()
     onLoadFailed: root.failUserDirs()
+  }
+
+  FileView {
+    id: lastFieldFile
+    path: root.statePath
+    watchChanges: false
+    atomicWrites: true
+    printErrors: false
+    onLoaded: root.loadLastField(text())
+    onLoadFailed: root.loadLastField("")
+  }
+
+  Process {
+    id: stateDirProc
+    command: ["mkdir", "-p", root.stateDir]
+    running: false
+    onExited: function(exitCode) {
+      if (exitCode === 0) {
+        root.stateDirReady = true
+        root.flushLastFieldState()
+      } else {
+        console.warn("sgruendel.fzf: could not create state directory", root.stateDir)
+      }
+    }
   }
 
   Timer {

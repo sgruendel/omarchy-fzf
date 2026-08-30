@@ -11,7 +11,8 @@ dwarf every other directory.
 As soon as you type into a field, the other fields disappear and matching
 files from that directory appear below, ranked by fzf. The field stays
 visible so you can keep refining the search. Selecting an entry opens the
-file with `xdg-open`.
+file with `xdg-open`. The most recently focused directory is restored the
+next time the overlay opens; search queries are not saved.
 
 ## Screenshots
 
@@ -40,6 +41,8 @@ omarchy plugin add https://github.com/sgruendel/omarchy-fzf.git --enable
 
 ```bash
 omarchy plugin remove sgruendel.fzf --yes
+rm -f -- "${XDG_STATE_HOME:-$HOME/.local/state}/sgruendel.fzf/state.json"
+rmdir -- "${XDG_STATE_HOME:-$HOME/.local/state}/sgruendel.fzf" 2>/dev/null || true
 ```
 
 ## Usage
@@ -65,6 +68,12 @@ o.bind("XF86Search", nil, "omarchy-shell shell toggle sgruendel.fzf")
 - `Enter`: open the selected file with `xdg-open`
 - `Escape`: clear the current search, or close the overlay when empty
 - Click a result to open it; click outside the card to close the overlay
+
+## State
+
+The last focused directory path is stored in
+`${XDG_STATE_HOME:-$HOME/.local/state}/sgruendel.fzf/state.json`.
+No search query or result history is persisted.
 
 ## How it works
 
