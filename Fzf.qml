@@ -368,6 +368,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: Style.space(110)
                 text: fieldRow.modelData.name
+                textFormat: Text.PlainText
                 color: root.foreground
                 opacity: input.activeFocus || input.text !== "" ? 1 : 0.58
                 font.family: root.fontFamily
@@ -425,6 +426,7 @@ Item {
                   anchors.fill: parent
                   visible: input.text === ""
                   text: "Search " + fieldRow.modelData.name + "…"
+                  textFormat: Text.PlainText
                   color: root.foreground
                   opacity: 0.38
                   font.family: root.fontFamily
@@ -441,6 +443,7 @@ Item {
             width: parent.width
             height: visible ? root.fieldHeight : 0
             text: root.dirsError || "No searchable XDG user directories found"
+            textFormat: Text.PlainText
             color: root.foreground
             opacity: 0.7
             font.family: root.fontFamily
@@ -485,6 +488,7 @@ Item {
                 anchors.rightMargin: Style.spacing.controlPaddingX
                 anchors.verticalCenter: parent.verticalCenter
                 text: parent.path.replace(/\n/g, "↵").replace(/\r/g, "↵").replace(/\t/g, "⇥")
+                textFormat: Text.PlainText
                 color: parent.hasCursor ? root.selectedText : root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
@@ -509,6 +513,7 @@ Item {
             width: parent.width - Style.spacing.controlPaddingX * 2
             visible: root.activeIndex !== -1 && resultModel.count === 0
             text: root.searching ? "Searching…" : (root.searchError || "No matches")
+            textFormat: Text.PlainText
             color: root.foreground
             opacity: 0.7
             font.family: root.fontFamily
@@ -570,6 +575,7 @@ Item {
                     id: keyText
                     anchors.centerIn: parent
                     text: shortcut.modelData.keys
+                    textFormat: Text.PlainText
                     color: root.foreground
                     opacity: 0.85
                     font.family: root.fontFamily
@@ -580,6 +586,7 @@ Item {
                 Text {
                   height: keycap.height
                   text: shortcut.modelData.action
+                  textFormat: Text.PlainText
                   color: root.foreground
                   opacity: 0.58
                   font.family: root.fontFamily
