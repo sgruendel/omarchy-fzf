@@ -41,3 +41,15 @@ test("skips home, relative, malformed, and duplicate directory entries", () => {
     { name: "Downloads", path: "/home/test/Downloads" }
   ])
 })
+
+test("caps directory entries and rejects overlong paths", () => {
+  const raw = [
+    'XDG_TOO_LONG_DIR="/home/test/' + "x".repeat(20) + '"',
+    'XDG_ONE_DIR="$HOME/One"',
+    'XDG_TWO_DIR="$HOME/Two"'
+  ].join("\n")
+
+  assert.deepEqual(UserDirs.parseUserDirs(raw, "/home/test", 1, 20), [
+    { name: "One", path: "/home/test/One" }
+  ])
+})

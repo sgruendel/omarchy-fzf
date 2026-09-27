@@ -54,16 +54,19 @@ function isHome(path, home) {
 
 // Returns [{ name, path }] for every XDG_*_DIR entry that does not point
 // at the home directory itself. Order follows the file.
-function parseUserDirs(raw, home) {
+function parseUserDirs(raw, home, maxEntries, maxPathLength) {
   var out = []
   var seenPaths = []
+  var entryLimit = Math.max(1, Number(maxEntries) || 64)
+  var pathLimit = Math.max(1, Number(maxPathLength) || 4096)
   var lines = String(raw || "").split("\n")
   for (var i = 0; i < lines.length; i++) {
+    if (out.length >= entryLimit) break
     var line = lines[i].trim()
     var match = /^XDG_([A-Za-z0-9_]+)_DIR=(.*)$/.exec(line)
     if (!match) continue
     var path = resolvePath(match[2], home)
-    if (!path || path.charAt(0) !== "/" || isHome(path, home)) continue
+    if (!path || path.length > pathLimit || path.charAt(0) !== "/" || isHome(path, home)) continue
     if (seenPaths.indexOf(path) !== -1) continue
     seenPaths.push(path)
     out.push({ name: displayName(match[1]), path: path })

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "sgruendel.fzf",
   "name": "fzf",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "author": "Stefan Gründel",
   "license": "MIT",
   "description": "Fuzzy-find files in your XDG user directories and open them",

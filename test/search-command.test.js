@@ -7,8 +7,8 @@ const { spawnSync } = require("node:child_process")
 
 const SearchCommand = require("../SearchCommand.js")
 
-function runSearch(query, directory, maxResults, env = process.env) {
-  const command = SearchCommand.command(query, directory, maxResults)
+function runSearch(query, directory, maxResults, env = process.env, maxOutputBytes = 256 * 1024) {
+  const command = SearchCommand.command(query, directory, maxResults, maxOutputBytes)
   return spawnSync(command[0], command.slice(1), { env })
 }
 
@@ -41,6 +41,21 @@ test("limits result count", t => {
 
   assert.equal(result.status, 0, result.stderr.toString())
   assert.equal(resultPaths(result.stdout).length, 2)
+})
+
+test("limits output bytes without emitting a partial path", t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "omarchy-fzf-search-"))
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }))
+  for (let index = 0; index < 10; index++) {
+    fs.writeFileSync(path.join(directory, `bounded-match-${index}.txt`), "")
+  }
+
+  const result = runSearch("bounded", directory, 100, process.env, 45)
+
+  assert.equal(result.status, 0, result.stderr.toString())
+  assert.ok(result.stdout.length <= 45)
+  assert.equal(result.stdout.at(-1), 0)
+  assert.ok(resultPaths(result.stdout).length < 10)
 })
 
 test("treats no matches as a successful empty result", t => {

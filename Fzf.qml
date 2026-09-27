@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "BoundedFile.js" as BoundedFile
 import "LastFieldState.js" as LastFieldState
 import "SearchCommand.js" as SearchCommand
 import "UserDirs.js" as UserDirs
@@ -29,6 +30,13 @@ Item {
   property string pendingLastFieldState: ""
   property bool stateDirReady: false
 
+  readonly property int maxUserDirsBytes: 65536
+  readonly property int maxStateBytes: 8192
+  readonly property int maxDirectoryEntries: 64
+  readonly property int maxPathLength: 4096
+  readonly property int maxSearchOutputBytes: 262144
+  readonly property int maxSearchErrorChars: 8192
+
   readonly property string stateHome: Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state"
   readonly property string stateDir: stateHome + "/sgruendel.fzf"
   readonly property string statePath: stateDir + "/state.json"
@@ -53,6 +61,11 @@ Item {
   property int cardWidth: Math.min(Style.space(560), panel.width - Style.gapsOut * 2)
   property int cardHeight: Math.min(Style.space(500), panel.height - Style.gapsOut * 2)
   property int maxResults: 200
+
+  Component.onCompleted: {
+    userDirsProc.running = true
+    lastFieldReadProc.running = true
+  }
 
   function resetSearch(clearActive) {
     debounce.stop()
@@ -93,7 +106,8 @@ Item {
   }
 
   function loadUserDirs(raw) {
-    var parsed = UserDirs.parseUserDirs(raw, Quickshell.env("HOME"))
+    var parsed = UserDirs.parseUserDirs(
+      raw, Quickshell.env("HOME"), root.maxDirectoryEntries, root.maxPathLength)
     root.resetSearch(true)
     root.dirs = parsed
     root.dirsLoaded = true
@@ -101,11 +115,11 @@ Item {
     root.focusPreferredField()
   }
 
-  function failUserDirs() {
+  function failUserDirs(reason) {
     root.resetSearch(true)
     root.dirs = []
     root.dirsLoaded = true
-    root.dirsError = "Could not read " + root.userDirsPath
+    root.dirsError = reason || ("Could not read " + root.userDirsPath)
   }
 
   function loadLastField(raw) {
@@ -142,9 +156,12 @@ Item {
   }
 
   function flushLastFieldState() {
-    if (root.pendingLastFieldState === "") return
-    lastFieldFile.setText(root.pendingLastFieldState)
+    if (root.pendingLastFieldState === "" || stateWriteProc.running) return
+    stateWriteProc.payload = root.pendingLastFieldState
     root.pendingLastFieldState = ""
+    stateWriteProc.command = BoundedFile.writeCommand(
+      root.statePath, stateWriteProc.payload, root.maxStateBytes)
+    stateWriteProc.running = true
   }
 
   function onQueryChanged(index, text) {
@@ -188,7 +205,9 @@ Item {
     // Set pendingGen only after exec(): stopping the previous process may
     // flush its collector synchronously, and that stale output must still
     // fail the generation check.
-    searchProc.exec(SearchCommand.command(query, dirPath, root.maxResults))
+    searchProc.errorText = ""
+    searchProc.exec(SearchCommand.command(
+      query, dirPath, root.maxResults, root.maxSearchOutputBytes))
     searchProc.pendingGen = root.searchGen
   }
 
@@ -198,8 +217,11 @@ Item {
     root.searchError = ""
     resultModel.clear()
     var lines = String(raw || "").split("\0")
-    for (var i = 0; i < lines.length; i++) {
+    for (var i = 0; i < lines.length && resultModel.count < root.maxResults; i++) {
       if (lines[i] === "") continue
+      // Every command result is NUL-terminated. Ignore a trailing fragment if
+      // a future command implementation ever reaches its byte cap mid-record.
+      if (i === lines.length - 1 && raw && raw.charAt(raw.length - 1) !== "\0") continue
       resultModel.append({ path: lines[i] })
     }
     if (root.selectedIndex >= resultModel.count) root.selectedIndex = Math.max(0, resultModel.count - 1)
@@ -241,27 +263,35 @@ Item {
 
   ListModel { id: resultModel }
 
-  FileView {
-    path: root.userDirsPath
-    watchChanges: true
-    onLoaded: root.loadUserDirs(text())
-    onFileChanged: reload()
-    onLoadFailed: root.failUserDirs()
+  // Both readers cap regular-file input before it reaches the collectors.
+  Process {
+    id: userDirsProc
+    command: BoundedFile.readCommand(root.userDirsPath, root.maxUserDirsBytes)
+    stdout: StdioCollector { id: userDirsStdout; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode === 0) root.loadUserDirs(userDirsStdout.text)
+      else if (exitCode === 65) root.failUserDirs("XDG user directories file is too large")
+      else root.failUserDirs()
+    }
   }
 
-  FileView {
-    id: lastFieldFile
-    path: root.statePath
-    watchChanges: false
-    atomicWrites: true
-    printErrors: false
-    onLoaded: root.loadLastField(text())
-    onLoadFailed: root.loadLastField("")
+  Process {
+    id: lastFieldReadProc
+    command: BoundedFile.readCommand(root.statePath, root.maxStateBytes)
+    stdout: StdioCollector { id: lastFieldReadStdout; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode === 0) root.loadLastField(lastFieldReadStdout.text)
+      else {
+        if (exitCode === 65)
+          console.warn("sgruendel.fzf: state file exceeds byte limit", root.statePath)
+        root.loadLastField("")
+      }
+    }
   }
 
   Process {
     id: stateDirProc
-    command: ["mkdir", "-p", root.stateDir]
+    command: BoundedFile.prepareDirectoryCommand(root.stateDir)
     running: false
     onExited: function(exitCode) {
       if (exitCode === 0) {
@@ -270,6 +300,21 @@ Item {
       } else {
         console.warn("sgruendel.fzf: could not create state directory", root.stateDir)
       }
+    }
+  }
+
+  Process {
+    id: stateWriteProc
+    property string payload: ""
+    running: false
+    onExited: function(exitCode) {
+      if (exitCode !== 0) {
+        console.warn("sgruendel.fzf: state write failed with exit", exitCode)
+        // Let a later focus retry the same path without immediately spinning.
+        root.lastFieldPath = ""
+      }
+      stateWriteProc.payload = ""
+      root.flushLastFieldState()
     }
   }
 
@@ -282,16 +327,22 @@ Item {
   Process {
     id: searchProc
     property int pendingGen: 0
+    property string errorText: ""
     stdout: StdioCollector {
       id: searchStdout
       waitForEnd: true
     }
-    stderr: StdioCollector {
-      id: searchStderr
-      waitForEnd: true
+    stderr: SplitParser {
+      // Empty markers emit arbitrary chunks instead of buffering whole lines.
+      splitMarker: ""
+      onRead: function(data) {
+        var remaining = root.maxSearchErrorChars - searchProc.errorText.length
+        if (remaining > 0)
+          searchProc.errorText += String(data || "").slice(0, remaining)
+      }
     }
     onExited: function(exitCode) {
-      root.finishSearch(searchProc.pendingGen, exitCode, searchStdout.text, searchStderr.text)
+      root.finishSearch(searchProc.pendingGen, exitCode, searchStdout.text, searchProc.errorText)
     }
   }
 

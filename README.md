@@ -74,14 +74,18 @@ o.bind("XF86Search", nil, "omarchy-shell shell toggle sgruendel.fzf")
 
 The last focused directory path is stored in
 `${XDG_STATE_HOME:-$HOME/.local/state}/sgruendel.fzf/state.json`.
-No search query or result history is persisted.
+The state file is limited to 8 KiB and written atomically with mode `0600`
+inside a mode `0700` plugin directory. No search query or result history is
+persisted.
 
 ## How it works
 
 Each keystroke is debounced (150 ms) and runs
 `fd --type f --hidden --exclude .git | fzf --scheme=path --filter=<query>`
 inside the directory, so results use fzf's path-oriented ranking. Hidden
-files are included except `.git`; fd also respects your `.gitignore`.
+files are included except `.git`; fd also respects your `.gitignore`. Input
+files and search output are byte-limited before entering QML collectors; the
+UI additionally caps directory entries, path lengths, and result count.
 
 ## Development
 

@@ -25,4 +25,6 @@ test("implements the Omarchy overlay lifecycle and scoped host injection", () =>
   assert.match(qml, /^\s*function open\(payloadJson\) \{$/m)
   assert.match(qml, /^\s*function close\(\) \{$/m)
   assert.match(qml, /root\.shell\.hide\(\(root\.manifest && root\.manifest\.id\) \|\| "sgruendel\.fzf"\)/)
+  assert.doesNotMatch(qml, /\bFileView\s*\{/)
+  assert.match(qml, /maxSearchOutputBytes:\s*262144/)
 })
