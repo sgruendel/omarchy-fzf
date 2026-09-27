@@ -32,6 +32,8 @@ Item {
   readonly property string stateHome: Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state"
   readonly property string stateDir: stateHome + "/sgruendel.fzf"
   readonly property string statePath: stateDir + "/state.json"
+  readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config"
+  readonly property string userDirsPath: configHome + "/user-dirs.dirs"
 
   // Shares the [menu] surface tokens — themes that style the menu also
   // style this overlay.
@@ -79,9 +81,10 @@ Item {
   }
 
   function dismiss() {
-    root.close()
     if (root.shell && typeof root.shell.hide === "function")
       root.shell.hide((root.manifest && root.manifest.id) || "sgruendel.fzf")
+    else
+      root.close()
   }
 
   function toggle() {
@@ -102,7 +105,7 @@ Item {
     root.resetSearch(true)
     root.dirs = []
     root.dirsLoaded = true
-    root.dirsError = "Could not read ~/.config/user-dirs.dirs"
+    root.dirsError = "Could not read " + root.userDirsPath
   }
 
   function loadLastField(raw) {
@@ -239,7 +242,7 @@ Item {
   ListModel { id: resultModel }
 
   FileView {
-    path: Quickshell.env("HOME") + "/.config/user-dirs.dirs"
+    path: root.userDirsPath
     watchChanges: true
     onLoaded: root.loadUserDirs(text())
     onFileChanged: reload()

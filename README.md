@@ -3,10 +3,11 @@
 A Quickshell overlay for [Omarchy](https://omarchy.org/) that fuzzy-finds
 files in your XDG user directories and opens them.
 
-The overlay reads `~/.config/user-dirs.dirs` and shows one search field per
-configured directory (Downloads, Documents, Music, Pictures, …). Entries that
-point at your home directory itself are skipped, since searching there would
-dwarf every other directory.
+The overlay reads
+`${XDG_CONFIG_HOME:-$HOME/.config}/user-dirs.dirs` and shows one search field
+per configured directory (Downloads, Documents, Music, Pictures, …). Entries
+that point at your home directory itself are skipped, since searching there
+would dwarf every other directory.
 
 As soon as you type into a field, the other fields disappear and matching
 files from that directory appear below, ranked by fzf. The field stays
@@ -26,7 +27,7 @@ Review fuzzy-ranked file results without leaving the keyboard:
 
 ## Requirements
 
-- Omarchy with the Quickshell desktop shell
+- Omarchy 4.0.4+ with the Quickshell plugin API
 - [`fzf`](https://github.com/junegunn/fzf)
 - [`fd`](https://github.com/sharkdp/fd)
 - `xdg-open`
@@ -83,6 +84,11 @@ inside the directory, so results use fzf's path-oriented ranking. Hidden
 files are included except `.git`; fd also respects your `.gitignore`.
 
 ## Development
+
+The plugin uses the standard third-party overlay lifecycle: Omarchy injects the
+scoped `shell` and public `manifest` facades, calls `open(payloadJson)` when the
+overlay is summoned, and calls `close()` when it is hidden. The overlay is
+loaded on demand and reports its state through `opened`.
 
 Run the parser and search-pipeline tests with:
 
